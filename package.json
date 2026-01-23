@@ -1,0 +1,30 @@
+{
+  "name": "portfolio-platform",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "predev": "node src/scripts/setup-env.js",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "lint": "next lint",
+    "seed": "node src/scripts/seed.js",
+    "analyze": "ANALYZE=true next build"
+  },
+  "dependencies": {
+    "next": "^14.2.20",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@heroicons/react": "^2.1.3",
+    "framer-motion": "^11.2.4",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.3",
+    "postcss": "^8.4.38",
+    "autoprefixer": "^10.4.19",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.3",
+    "@next/bundle-analyzer": "^14.2.20"
+  }
+}

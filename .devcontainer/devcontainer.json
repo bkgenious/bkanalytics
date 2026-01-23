@@ -1,0 +1,47 @@
+{
+    "name": "Portfolio Platform",
+    "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+    // Run npm install and seed sample data when created
+    "postCreateCommand": "npm install && npm run seed && cp -n .env.example .env.local 2>/dev/null || true",
+    // Start the dev server when the container starts
+    "postStartCommand": "echo '✅ Ready! Run: npm run dev' && echo '📍 Preview URL will appear in the Ports tab' && echo '🌱 Database seeded with sample projects'",
+    // Forward port 3000 for Next.js
+    "forwardPorts": [
+        3000
+    ],
+    // Port configuration - PUBLIC visibility for shareable links
+    "portsAttributes": {
+        "3000": {
+            "label": "Portfolio App",
+            "onAutoForward": "openPreview",
+            "visibility": "public"
+        }
+    },
+    // VS Code customizations
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "bradlc.vscode-tailwindcss",
+                "esbenp.prettier-vscode",
+                "dbaeumer.vscode-eslint",
+                "formulahendry.auto-rename-tag",
+                "christian-kohler.path-intellisense"
+            ],
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "editor.formatOnSave": true,
+                "editor.defaultFormatter": "esbenp.prettier-vscode",
+                "files.autoSave": "afterDelay",
+                "files.autoSaveDelay": 1000
+            }
+        }
+    },
+    // Environment variables for Codespaces
+    "containerEnv": {
+        "NEXT_TELEMETRY_DISABLED": "1"
+    },
+    // Features to add to the container
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {}
+    }
+}

@@ -1,0 +1,56 @@
+[
+    {
+        "id": "sample-1",
+        "title": "Sales Performance Dashboard",
+        "description": "A comprehensive Power BI dashboard tracking key sales metrics across regions, products, and time periods. Features interactive filters, drill-down capabilities, and executive KPI scorecards for real-time business intelligence.",
+        "tool": "Power BI",
+        "tags": [
+            "Sales",
+            "KPI",
+            "Executive Dashboard",
+            "Real-time"
+        ],
+        "images": [],
+        "video": null,
+        "pdf": null,
+        "thumbnail": null,
+        "createdAt": "2024-01-15T10:00:00Z",
+        "updatedAt": "2024-01-15T10:00:00Z"
+    },
+    {
+        "id": "sample-2",
+        "title": "Financial Analytics Suite",
+        "description": "An enterprise Tableau workbook for financial analysis and forecasting. Includes P&L statements, cash flow visualizations, budget vs. actual comparisons, and predictive trend analysis with statistical modeling.",
+        "tool": "Tableau",
+        "tags": [
+            "Finance",
+            "Forecasting",
+            "P&L",
+            "Analytics"
+        ],
+        "images": [],
+        "video": null,
+        "pdf": null,
+        "thumbnail": null,
+        "createdAt": "2024-02-20T14:30:00Z",
+        "updatedAt": "2024-02-20T14:30:00Z"
+    },
+    {
+        "id": "sample-3",
+        "title": "Budget Planning Workbook",
+        "description": "A sophisticated Excel workbook with automated budget calculations, variance analysis, and multi-scenario planning. Features dynamic charts, conditional formatting, and integrated data validation for accurate financial planning.",
+        "tool": "Excel",
+        "tags": [
+            "Budget",
+            "Planning",
+            "Automation",
+            "Scenarios"
+        ],
+        "images": [],
+        "video": null,
+        "pdf": null,
+        "thumbnail": null,
+        "createdAt": "2024-03-10T09:15:00Z",
+        "updatedAt": "2024-03-10T09:15:00Z"
+    }
+]
