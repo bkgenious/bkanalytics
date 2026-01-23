@@ -1,0 +1,17 @@
+{
+  "experience": 5,
+  "customStats": [
+    {
+      "label": "Dashboards Delivered",
+      "value": "50+"
+    },
+    {
+      "label": "Reports Created",
+      "value": "100+"
+    },
+    {
+      "label": "Enterprise Clients",
+      "value": "25+"
+    }
+  ]
+}
