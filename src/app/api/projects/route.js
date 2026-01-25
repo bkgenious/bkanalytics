@@ -1,5 +1,5 @@
 /**
- * Projects API Route - Production Hardened
+ * Projects API Route - Enterprise Grade
  * GET - Fetch all projects (public)
  * POST - Create new project (admin protected)
  */
@@ -7,37 +7,93 @@
 import { NextResponse } from 'next/server';
 import { getAllProjects, createProject } from '@/lib/db';
 import { isAuthenticated, validateRequestOrigin } from '@/lib/auth';
-import { validateProjectData, createErrorResponse } from '@/lib/validation';
+import { validateRequest } from '@/lib/validation';
+import { CreateProjectSchema, ProjectQuerySchema } from '@/lib/schemas/project';
+import { apiResponse, apiError } from '@/lib/api-response';
+import { generateETag } from '@/lib/etag';
 
-// GET /api/projects - Public endpoint (Filtered)
+// GET /api/projects - Public endpoint (Filtered & Cached)
 export async function GET(request) {
     try {
+        // 1. Parsing & Validation of Query Params
+        const { searchParams } = new URL(request.url);
+        // Note: ProjectQuerySchema expects an object, not URLSearchParams directly.
+        // We use validateRequest with 'query' source which handles conversion? 
+        // No, my validateRequest implementation did handle 'query' by converting searchParams to object.
+        const queryValidation = await validateRequest(request, ProjectQuerySchema, 'query');
+
+        // If query is invalid, return validation error (Strict Mode)
+        if (!queryValidation.success) {
+            return queryValidation.response;
+        }
+
+        const filters = queryValidation.data;
         const projects = getAllProjects();
 
-        // Check if user is admin
+        // 2. Check Authentication (for 'draft' visibility)
         const isAdmin = isAuthenticated(request);
 
-        // If not admin, filter out drafts
-        const visibleProjects = isAdmin
-            ? projects
-            : projects.filter(p => p.status === 'published');
+        // 3. Apply Filters
+        let filtered = projects.filter(p => {
+            // Admin sees all, Public sees only published
+            if (!isAdmin && p.status !== 'published') return false;
 
-        return NextResponse.json(visibleProjects, {
+            // Explicit status filter (Admin can query 'draft', Public restricted above)
+            // But if user passes ?status=draft and is NOT admin, they get nothing due to line above.
+            if (filters.status && p.status !== filters.status) return false;
+
+            // Tool filter (projects have 'tool' field, not 'techStack')
+            if (filters.tech) {
+                const techLower = filters.tech.toLowerCase();
+                const matchesTool = p.tool?.toLowerCase() === techLower;
+                const matchesTags = Array.isArray(p.tags) && p.tags.some(t => t?.toLowerCase() === techLower);
+                if (!matchesTool && !matchesTags) return false;
+            }
+
+            // Search filter (Title, Description, Tags) - with defensive null checks
+            if (filters.search) {
+                const q = filters.search.toLowerCase();
+                const matchTitle = p.title?.toLowerCase().includes(q) || false;
+                const matchDesc = p.description?.toLowerCase().includes(q) || false;
+                const matchTags = Array.isArray(p.tags) && p.tags.some(tag => tag?.toLowerCase().includes(q));
+
+                if (!matchTitle && !matchDesc && !matchTags) return false;
+            }
+
+            return true;
+        });
+
+        // 4. Apply Sorting
+        filtered.sort((a, b) => {
+            if (filters.sort === 'date-asc') return new Date(a.createdAt) - new Date(b.createdAt);
+            if (filters.sort === 'title-asc') return a.title.localeCompare(b.title);
+            // Default: date-desc
+            return new Date(b.createdAt) - new Date(a.createdAt);
+        });
+
+        // 5. Pagination
+        const page = filters.page;
+        const limit = filters.limit;
+        const startIndex = (page - 1) * limit;
+        const paginated = filtered.slice(startIndex, startIndex + limit);
+
+        // 6. ETag & Caching
+        const etag = generateETag(paginated);
+        const ifNoneMatch = request.headers.get('if-none-match');
+
+        if (ifNoneMatch === etag) {
+            return new NextResponse(null, { status: 304 });
+        }
+
+        return apiResponse(paginated, {
             headers: {
-                // Cache publicly for 60s, but revalidate.
-                // Note: If using a CDN/Vercel, we might want different cache keys for admin vs public,
-                // but since this is Cookie-based auth, standard HTTP caching might be tricky.
-                // We'll trust the browser/Next.js to handle Vary: Cookie if applicable,
-                // or just set a short cache.
                 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300, Vary=Cookie',
+                'ETag': etag
             },
         });
     } catch (error) {
-        console.error('Error fetching projects:', error.message);
-        return NextResponse.json(
-            createErrorResponse('Failed to fetch projects', 500),
-            { status: 500 }
-        );
+        console.error('Error fetching projects:', error);
+        return apiError('Failed to fetch projects', 'INTERNAL_ERROR', 500);
     }
 }
 
@@ -46,49 +102,26 @@ export async function POST(request) {
     try {
         // Validate request origin (CSRF protection)
         if (!validateRequestOrigin(request)) {
-            return NextResponse.json(
-                createErrorResponse('Invalid request origin', 403),
-                { status: 403 }
-            );
+            return apiError('Invalid request origin', 'FORBIDDEN', 403);
         }
 
         // Check authentication
         if (!isAuthenticated(request)) {
-            return NextResponse.json(
-                createErrorResponse('Unauthorized', 401),
-                { status: 401 }
-            );
+            return apiError('Unauthorized', 'UNAUTHORIZED', 401);
         }
 
-        // Parse and validate body
-        let body;
-        try {
-            body = await request.json();
-        } catch {
-            return NextResponse.json(
-                createErrorResponse('Invalid JSON body', 400),
-                { status: 400 }
-            );
-        }
-
-        // Validate project data
-        const validation = validateProjectData(body);
-        if (!validation.valid) {
-            return NextResponse.json(
-                createErrorResponse(validation.errors.join(', '), 400),
-                { status: 400 }
-            );
+        // Validate Body against Zod Schema
+        const validation = await validateRequest(request, CreateProjectSchema, 'body');
+        if (!validation.success) {
+            return validation.response;
         }
 
         // Create project with sanitized data
-        const project = createProject(validation.sanitized);
+        const project = createProject(validation.data);
 
-        return NextResponse.json(project, { status: 201 });
+        return apiResponse(project, { status: 201 });
     } catch (error) {
-        console.error('Error creating project:', error.message);
-        return NextResponse.json(
-            createErrorResponse('Failed to create project', 500),
-            { status: 500 }
-        );
+        console.error('Error creating project:', error);
+        return apiError('Failed to create project', 'INTERNAL_ERROR', 500);
     }
 }

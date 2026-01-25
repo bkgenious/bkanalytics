@@ -1,3 +1,7 @@
+import createNextIntlPlugin from 'next-intl/plugin';
+
+const withNextIntl = createNextIntlPlugin('./src/i18n.ts');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // React configuration
@@ -16,6 +20,11 @@ const nextConfig = {
   experimental: {
     // Optimize package imports
     optimizePackageImports: ['framer-motion', '@heroicons/react'],
+  },
+
+  // Expose environment variables to the client
+  env: {
+    CODESPACES: process.env.CODESPACES,
   },
 
   // Compiler optimizations
@@ -104,4 +113,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);

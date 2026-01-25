@@ -38,17 +38,20 @@ export default function ProjectPage() {
                 // Fetch project data
                 const res = await fetch(`/api/projects/${id}`);
                 if (!res.ok) throw new Error('Project not found');
-                const data = await res.json();
+                const json = await res.json();
+                if (!json.success) throw new Error(json.error?.message || 'Project not found');
+                const data = json.data;
 
                 // Check draft status
                 if (data.status === 'draft') {
                     // Check authentication
                     try {
                         const authRes = await fetch('/api/auth');
-                        const auth = await authRes.json();
-                        if (!auth.authenticated) {
-                            // If not authenticated, redirect to home (simulate 404 behavior for public)
-                            // or we could show a true 404 component
+                        const authJson = await authRes.json();
+                        // apiResponse({ authenticated: true }) -> { success: true, data: { authenticated: true } }
+                        const isAuthenticated = authJson.success && authJson.data?.authenticated;
+
+                        if (!isAuthenticated) {
                             router.replace('/');
                             return;
                         }
@@ -137,6 +140,25 @@ export default function ProjectPage() {
                         )}
                     </div>
 
+                    <script
+                        type="application/ld+json"
+                        dangerouslySetInnerHTML={{
+                            __html: JSON.stringify({
+                                '@context': 'https://schema.org',
+                                '@type': 'CreativeWork',
+                                name: project.title,
+                                description: project.description,
+                                author: {
+                                    '@type': 'Person',
+                                    name: 'Data Analytics Professional'
+                                },
+                                dateCreated: project.createdAt,
+                                image: project.thumbnail || project.images?.[0],
+                                keywords: project.tags?.join(', '),
+                            }),
+                        }}
+                    />
+
                     {/* Header Section */}
                     <header className="mb-12 animate-slide-up">
                         {/* Badges */}
@@ -157,6 +179,32 @@ export default function ProjectPage() {
                             {project.description}
                         </p>
                     </header>
+
+                    {/* Dashboard Embed Section */}
+                    {project.embedUrl && (
+                        <section className="mb-12 animate-fade-up">
+                            <div className="aspect-[16/9] w-full bg-neutral-100 dark:bg-neutral-900 rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800 shadow-sm relative">
+                                <iframe
+                                    src={project.embedUrl}
+                                    title={project.title}
+                                    className="absolute inset-0 w-full h-full"
+                                    allowFullScreen
+                                    loading="lazy"
+                                />
+                            </div>
+                            <div className="mt-3 flex justify-end">
+                                <a
+                                    href={project.embedUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 inline-flex items-center"
+                                >
+                                    Open in full screen
+                                    <ArrowLeftIcon className="w-3 h-3 ml-1 rotate-180" />
+                                </a>
+                            </div>
+                        </section>
+                    )}
 
                     {/* Main Image Gallery */}
                     {project.images?.length > 0 && (

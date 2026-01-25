@@ -1,0 +1,20 @@
+{
+    "home": {
+        "title": "DataViz Portfolio",
+        "subtitle": "Data Analytics & Visualization Expert",
+        "cta": "View My Work"
+    },
+    "nav": {
+        "projects": "Projects",
+        "about": "About",
+        "contact": "Contact"
+    },
+    "projects": {
+        "heading": "Featured Projects",
+        "viewAll": "View All Projects",
+        "loadMore": "Load More"
+    },
+    "footer": {
+        "copyright": "© {year} All rights reserved."
+    }
+}

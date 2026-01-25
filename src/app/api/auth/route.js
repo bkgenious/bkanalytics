@@ -1,5 +1,5 @@
 /**
- * Authentication API Route - Production Hardened
+ * Authentication API Route - Enterprise Grade
  * POST - Login with credentials
  * DELETE - Logout (clear session)
  * GET - Check auth status
@@ -14,70 +14,44 @@ import {
     isAuthenticated,
     validateRequestOrigin
 } from '@/lib/auth';
-import { sanitizeString, createErrorResponse } from '@/lib/validation';
+import { validateRequest } from '@/lib/validation';
+import { LoginSchema } from '@/lib/schemas/auth';
+import { apiResponse, apiError } from '@/lib/api-response';
 
 // POST /api/auth - Login
 export async function POST(request) {
     try {
         // Validate request origin
         if (!validateRequestOrigin(request)) {
-            return NextResponse.json(
-                createErrorResponse('Invalid request origin', 403),
-                { status: 403 }
-            );
+            return apiError('Invalid request origin', 'FORBIDDEN', 403);
         }
 
-        // Parse body
-        let body;
-        try {
-            body = await request.json();
-        } catch {
-            return NextResponse.json(
-                createErrorResponse('Invalid request body', 400),
-                { status: 400 }
-            );
+        // Validate Body
+        const validation = await validateRequest(request, LoginSchema, 'body');
+        if (!validation.success) {
+            return validation.response;
         }
 
-        const { username, password } = body;
+        const { username, password } = validation.data;
 
-        // Validate input
-        if (!username || !password) {
-            return NextResponse.json(
-                createErrorResponse('Username and password are required', 400),
-                { status: 400 }
-            );
-        }
-
-        // Sanitize inputs
-        const sanitizedUsername = sanitizeString(username, 100);
-        const sanitizedPassword = password.substring(0, 200); // Don't trim passwords
-
-        // Validate credentials (uses timing-safe comparison)
-        if (!validateCredentials(sanitizedUsername, sanitizedPassword)) {
+        // Validate credentials (uses scrypt + timing-safe comparison)
+        const valid = await validateCredentials(username, password);
+        if (!valid) {
             // Generic error message to prevent username enumeration
-            return NextResponse.json(
-                createErrorResponse('Invalid credentials', 401),
-                { status: 401 }
-            );
+            return apiError('Invalid credentials', 'UNAUTHORIZED', 401);
         }
 
         // Generate session token
         let token;
         try {
-            token = generateSessionToken(sanitizedUsername);
+            token = generateSessionToken(username);
         } catch (error) {
-            console.error('Token generation failed:', error.message);
-            return NextResponse.json(
-                createErrorResponse('Authentication service unavailable', 503),
-                { status: 503 }
-            );
+            console.error('Token generation failed:', error);
+            return apiError('Authentication service unavailable', 'SERVICE_UNAVAILABLE', 503);
         }
 
         // Create response with secure cookie
-        const response = NextResponse.json({
-            success: true,
-            message: 'Login successful',
-        });
+        const response = apiResponse({ message: 'Login successful' });
 
         // Set auth cookie
         const headers = createAuthHeaders(token);
@@ -85,11 +59,8 @@ export async function POST(request) {
 
         return response;
     } catch (error) {
-        console.error('Login error:', error.message);
-        return NextResponse.json(
-            createErrorResponse('Login failed', 500),
-            { status: 500 }
-        );
+        console.error('Login error:', error);
+        return apiError('Login failed', 'INTERNAL_ERROR', 500);
     }
 }
 
@@ -98,16 +69,10 @@ export async function DELETE(request) {
     try {
         // Validate request origin
         if (!validateRequestOrigin(request)) {
-            return NextResponse.json(
-                createErrorResponse('Invalid request origin', 403),
-                { status: 403 }
-            );
+            return apiError('Invalid request origin', 'FORBIDDEN', 403);
         }
 
-        const response = NextResponse.json({
-            success: true,
-            message: 'Logout successful',
-        });
+        const response = apiResponse({ message: 'Logout successful' });
 
         // Clear auth cookie
         const headers = createLogoutHeaders();
@@ -115,11 +80,8 @@ export async function DELETE(request) {
 
         return response;
     } catch (error) {
-        console.error('Logout error:', error.message);
-        return NextResponse.json(
-            createErrorResponse('Logout failed', 500),
-            { status: 500 }
-        );
+        console.error('Logout error:', error);
+        return apiError('Logout failed', 'INTERNAL_ERROR', 500);
     }
 }
 
@@ -128,18 +90,14 @@ export async function GET(request) {
     try {
         const authenticated = isAuthenticated(request);
 
-        return NextResponse.json({
-            authenticated,
-        }, {
+        return apiResponse({ authenticated }, {
             headers: {
-                // Don't cache auth status
                 'Cache-Control': 'no-store, no-cache, must-revalidate',
             },
         });
     } catch (error) {
-        console.error('Auth check error:', error.message);
-        return NextResponse.json({
-            authenticated: false,
-        });
+        console.error('Auth check error:', error);
+        // Fail open? No, fail closed usually. But for status check, returning false is safer.
+        return apiResponse({ authenticated: false });
     }
 }

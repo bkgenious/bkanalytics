@@ -4,175 +4,172 @@
  */
 
 import crypto from 'crypto';
+import { isProduction, isCMS } from './env'; // We will create this next
 
 // Get credentials from environment with validation
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH; // scrypt hash
 const SESSION_SECRET = process.env.SESSION_SECRET;
 
 // Validate required environment variables
-if (!ADMIN_USERNAME || !ADMIN_PASSWORD || !SESSION_SECRET) {
+if (!ADMIN_USERNAME || (!process.env.ADMIN_PASSWORD && !ADMIN_PASSWORD_HASH) || !SESSION_SECRET) {
     console.warn(
         '⚠️  Warning: Missing authentication environment variables. ' +
-        'Set ADMIN_USERNAME, ADMIN_PASSWORD, and SESSION_SECRET in .env.local'
+        'Set ADMIN_USERNAME, ADMIN_PASSWORD_HASH, and SESSION_SECRET in .env.local'
     );
 }
 
 // Session configuration
-const SESSION_MAX_AGE = 8 * 60 * 60 * 1000; // 8 hours (reduced from 24)
-const TOKEN_VERSION = 'v2'; // Increment to invalidate all existing sessions
+const SESSION_MAX_AGE = 8 * 60 * 60 * 1000; // 8 hours
+const TOKEN_VERSION = 'v3'; // Increment to invalidate all existing sessions
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 
 /**
  * Timing-safe string comparison to prevent timing attacks
  */
 function secureCompare(a, b) {
     if (!a || !b) return false;
-
     const bufA = Buffer.from(a);
     const bufB = Buffer.from(b);
-
     if (bufA.length !== bufB.length) {
-        // Compare with dummy to maintain constant time
-        crypto.timingSafeEqual(bufA, bufA);
+        crypto.timingSafeEqual(bufA, bufA); // Constant time
         return false;
     }
-
     return crypto.timingSafeEqual(bufA, bufB);
 }
 
 /**
- * Hash password with salt for comparison
+ * Generate a random salt
  */
-function hashCredential(credential, salt) {
-    return crypto
-        .createHmac('sha256', salt)
-        .update(credential)
-        .digest('hex');
+function generateSalt(length = 16) {
+    return crypto.randomBytes(length).toString('hex');
 }
 
 /**
- * Validates admin credentials using timing-safe comparison
- * @param {string} username - Username to validate
- * @param {string} password - Password to validate
- * @returns {boolean} True if credentials are valid
+ * Hash password using scrypt
  */
-export function validateCredentials(username, password) {
-    if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
-        console.error('Authentication not configured');
-        return false;
+export async function hashPassword(password, salt) {
+    return new Promise((resolve, reject) => {
+        crypto.scrypt(password, salt, 64, SCRYPT_PARAMS, (err, derivedKey) => {
+            if (err) reject(err);
+            resolve(`${salt}:${derivedKey.toString('hex')}`);
+        });
+    });
+}
+
+/**
+ * Validates admin credentials using scrypt
+ * Supports legacy plaintext fallback for migration (in-memory only)
+ */
+export async function validateCredentials(username, password) {
+    if (!ADMIN_USERNAME) return false;
+
+    // 1. Username check (timing safe)
+    if (!secureCompare(username, ADMIN_USERNAME)) return false;
+
+    // 2. Password check
+    // If we have a hash in env, use it.
+    if (ADMIN_PASSWORD_HASH) {
+        const [salt, key] = ADMIN_PASSWORD_HASH.split(':');
+        if (!salt || !key) {
+            console.error('Invalid ADMIN_PASSWORD_HASH format');
+            return false;
+        }
+
+        const derived = await hashPassword(password, salt);
+        const [_, derivedKey] = derived.split(':');
+        return secureCompare(key, derivedKey);
     }
 
-    // Use timing-safe comparison to prevent timing attacks
-    const usernameValid = secureCompare(username, ADMIN_USERNAME);
-    const passwordValid = secureCompare(password, ADMIN_PASSWORD);
+    // Fallback: Plaintext env var (Legacy) - Warn user
+    if (process.env.ADMIN_PASSWORD) {
+        // Still use timing safe compare against plaintext
+        return secureCompare(password, process.env.ADMIN_PASSWORD);
+    }
 
-    return usernameValid && passwordValid;
+    return false;
 }
 
 /**
  * Generates a cryptographically secure session token
- * @param {string} username - Username for the session
- * @returns {string} Encrypted session token
  */
 export function generateSessionToken(username) {
-    if (!SESSION_SECRET) {
-        throw new Error('SESSION_SECRET not configured');
-    }
+    if (!SESSION_SECRET) throw new Error('SESSION_SECRET not configured');
 
     const payload = {
-        version: TOKEN_VERSION,
-        username,
-        timestamp: Date.now(),
+        v: TOKEN_VERSION,
+        uid: username,
+        iat: Date.now(),
+        exp: Date.now() + SESSION_MAX_AGE,
         nonce: crypto.randomBytes(16).toString('hex'),
-        fingerprint: crypto.randomBytes(8).toString('hex'),
+        env: isProduction() ? 'prod' : 'dev', // Bind to environment
     };
 
     // Create HMAC signature
     const signature = crypto
         .createHmac('sha256', SESSION_SECRET)
         .update(JSON.stringify(payload))
-        .digest('hex');
+        .digest('base64url');
 
     // Encode payload and signature
-    const token = Buffer.from(
-        JSON.stringify({ ...payload, signature })
-    ).toString('base64url'); // Use base64url for URL safety
-
-    return token;
+    return Buffer.from(
+        JSON.stringify({ ...payload, sig: signature })
+    ).toString('base64url');
 }
 
 /**
  * Verifies a session token with enhanced security
- * @param {string} token - Token to verify
- * @returns {Object|null} Decoded payload if valid, null otherwise
  */
 export function verifySessionToken(token) {
     if (!token || !SESSION_SECRET) return null;
 
     try {
-        // Decode the token (handle both base64 and base64url)
-        let decoded;
-        try {
-            decoded = JSON.parse(Buffer.from(token, 'base64url').toString('utf-8'));
-        } catch {
-            decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf-8'));
-        }
+        const decoded = JSON.parse(Buffer.from(token, 'base64url').toString('utf-8'));
+        const { sig, ...payload } = decoded;
 
-        const { signature, ...payload } = decoded;
+        // 1. Verify Version
+        if (payload.v !== TOKEN_VERSION) return null;
 
-        // Verify token version
-        if (payload.version !== TOKEN_VERSION) {
-            return null;
-        }
+        // 2. Verify Expiry
+        if (Date.now() > payload.exp) return null;
 
-        // Recreate the signature
-        const expectedSignature = crypto
+        // 3. Verify Environment Fingerprint
+        const currentEnv = isProduction() ? 'prod' : 'dev';
+        if (payload.env !== currentEnv) return null; // Prevent dev tokens in prod
+
+        // 4. Verify Signature
+        const expectedSig = crypto
             .createHmac('sha256', SESSION_SECRET)
             .update(JSON.stringify(payload))
-            .digest('hex');
+            .digest('base64url');
 
-        // Timing-safe comparison
-        if (!secureCompare(signature, expectedSignature)) {
-            return null;
-        }
-
-        // Check expiration
-        if (Date.now() - payload.timestamp > SESSION_MAX_AGE) {
-            return null;
-        }
+        if (!secureCompare(sig, expectedSig)) return null;
 
         return payload;
     } catch (error) {
-        // Log for monitoring but don't expose details
-        console.error('Token verification failed');
         return null;
     }
 }
 
 /**
  * Middleware helper to check authentication from request
- * @param {Request} request - Next.js request object
- * @returns {boolean} True if authenticated
  */
 export function isAuthenticated(request) {
-    // Check for auth token in cookies
+    // Determine cookie name based on environment
+    const cookieName = isProduction() ? '__Host-admin_session' : 'admin_session';
+
     const cookieHeader = request.headers.get('cookie') || '';
     const authHeader = request.headers.get('authorization') || '';
 
-    // Extract token from cookie
-    const cookieMatch = cookieHeader.match(/admin_token=([^;]+)/);
+    // Regex to find specific cookie
+    const cookieRegex = new RegExp(`${cookieName}=([^;]+)`);
+    const cookieMatch = cookieHeader.match(cookieRegex);
     const cookieToken = cookieMatch ? decodeURIComponent(cookieMatch[1]) : null;
 
-    // Extract token from Authorization header (for API clients)
-    const headerToken = authHeader.startsWith('Bearer ')
-        ? authHeader.slice(7)
-        : null;
-
+    const headerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
     const token = cookieToken || headerToken;
 
-    if (!token) {
-        return false;
-    }
+    if (!token) return false;
 
     const payload = verifySessionToken(token);
     return payload !== null;
@@ -180,23 +177,21 @@ export function isAuthenticated(request) {
 
 /**
  * Creates secure authentication response headers with session cookie
- * @param {string} token - Session token
- * @param {boolean} isProduction - Whether running in production
- * @returns {Object} Headers object with Set-Cookie
  */
-export function createAuthHeaders(token, isProduction = process.env.NODE_ENV === 'production') {
-    const maxAge = SESSION_MAX_AGE / 1000; // Convert to seconds
+export function createAuthHeaders(token) {
+    const maxAge = SESSION_MAX_AGE / 1000;
+    const prod = isProduction();
+    const cookieName = prod ? '__Host-admin_session' : 'admin_session';
 
     const cookieOptions = [
-        `admin_token=${encodeURIComponent(token)}`,
+        `${cookieName}=${encodeURIComponent(token)}`,
         'Path=/',
         'HttpOnly',
         'SameSite=Strict',
         `Max-Age=${maxAge}`,
     ];
 
-    // Add Secure flag in production (requires HTTPS)
-    if (isProduction) {
+    if (prod) {
         cookieOptions.push('Secure');
     }
 
@@ -206,53 +201,43 @@ export function createAuthHeaders(token, isProduction = process.env.NODE_ENV ===
 }
 
 /**
- * Creates logout response headers (clears cookie)
- * @returns {Object} Headers object with cleared cookie
+ * Creates logout response headers
  */
 export function createLogoutHeaders() {
+    const prod = process.env.NODE_ENV === 'production';
+    const cookieName = prod ? '__Host-admin_session' : 'admin_session';
+
     return {
-        'Set-Cookie': 'admin_token=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0',
+        'Set-Cookie': `${cookieName}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`,
     };
 }
 
 /**
- * Generate a CSRF token for forms
- * @param {string} sessionToken - Current session token
- * @returns {string} CSRF token
- */
-export function generateCSRFToken(sessionToken) {
-    if (!SESSION_SECRET || !sessionToken) return '';
-
-    return crypto
-        .createHmac('sha256', SESSION_SECRET)
-        .update(`csrf:${sessionToken}:${Date.now()}`)
-        .digest('hex')
-        .substring(0, 32);
-}
-
-/**
  * Validate request origin to prevent CSRF
- * @param {Request} request - Incoming request
- * @returns {boolean} True if origin is valid
  */
 export function validateRequestOrigin(request) {
     const origin = request.headers.get('origin');
     const host = request.headers.get('host');
 
-    // In development, allow localhost
-    if (process.env.NODE_ENV !== 'production') {
+    // In dev, be lenient but still check if Origin is present
+    if (!isProduction()) {
+        if (origin) {
+            try {
+                const originUrl = new URL(origin);
+                return originUrl.host === host;
+            } catch { return false; }
+        }
         return true;
     }
 
-    // No origin header (same-origin request)
-    if (!origin) {
-        return true;
-    }
+    // Production: Strict Logic
+    if (!origin) return true; // Server-to-server or non-browser allowed if no origin? 
+    // Actually, strictly block cross-origin POSTs.
+    // If standard browser POST, Origin is sent.
 
-    // Check that origin matches host
     try {
-        const originHost = new URL(origin).host;
-        return originHost === host;
+        const originUrl = new URL(origin);
+        return originUrl.host === host; // Must match exact host
     } catch {
         return false;
     }

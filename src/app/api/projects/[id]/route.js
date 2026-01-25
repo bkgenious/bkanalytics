@@ -8,7 +8,9 @@
 import { NextResponse } from 'next/server';
 import { getProjectById, updateProject, deleteProject } from '@/lib/db';
 import { isAuthenticated, validateRequestOrigin } from '@/lib/auth';
-import { validateProjectData, isValidUUID, createErrorResponse } from '@/lib/validation';
+import { isValidUUID, validateRequest } from '@/lib/validation';
+import { UpdateProjectSchema } from '@/lib/schemas/project';
+import { apiResponse, apiError } from '@/lib/api-response';
 
 // GET /api/projects/[id] - Public endpoint
 export async function GET(request, { params }) {
@@ -17,32 +19,58 @@ export async function GET(request, { params }) {
 
         // Validate ID format
         if (!isValidUUID(id)) {
-            return NextResponse.json(
-                createErrorResponse('Invalid project ID format', 400),
-                { status: 400 }
-            );
+            return apiError('Invalid project ID format', 'VALIDATION_ERROR', 400);
         }
 
         const project = getProjectById(id);
 
         if (!project) {
-            return NextResponse.json(
-                createErrorResponse('Project not found', 404),
-                { status: 404 }
-            );
+            return apiError('Project not found', 'NOT_FOUND', 404);
         }
 
-        return NextResponse.json(project, {
+        return apiResponse(project, {
             headers: {
                 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
             },
         });
     } catch (error) {
-        console.error('Error fetching project:', error.message);
-        return NextResponse.json(
-            createErrorResponse('Failed to fetch project', 500),
-            { status: 500 }
-        );
+        console.error('Error fetching project:', error);
+        return apiError('Failed to fetch project', 'INTERNAL_ERROR', 500);
+    }
+}
+
+// PUT is already handled...
+
+// DELETE /api/projects/[id] - Admin protected
+export async function DELETE(request, { params }) {
+    try {
+        // Validate request origin
+        if (!validateRequestOrigin(request)) {
+            return apiError('Invalid request origin', 'FORBIDDEN', 403);
+        }
+
+        // Check authentication
+        if (!isAuthenticated(request)) {
+            return apiError('Unauthorized', 'UNAUTHORIZED', 401);
+        }
+
+        const { id } = await params;
+
+        // Validate ID format
+        if (!isValidUUID(id)) {
+            return apiError('Invalid project ID format', 'VALIDATION_ERROR', 400);
+        }
+
+        const deleted = deleteProject(id);
+
+        if (!deleted) {
+            return apiError('Project not found', 'NOT_FOUND', 404);
+        }
+
+        return apiResponse({ message: 'Project deleted' });
+    } catch (error) {
+        console.error('Error deleting project:', error);
+        return apiError('Failed to delete project', 'INTERNAL_ERROR', 500);
     }
 }
 
@@ -51,114 +79,38 @@ export async function PUT(request, { params }) {
     try {
         // Validate request origin
         if (!validateRequestOrigin(request)) {
-            return NextResponse.json(
-                createErrorResponse('Invalid request origin', 403),
-                { status: 403 }
-            );
+            return apiError('Invalid request origin', 'FORBIDDEN', 403);
         }
 
         // Check authentication
         if (!isAuthenticated(request)) {
-            return NextResponse.json(
-                createErrorResponse('Unauthorized', 401),
-                { status: 401 }
-            );
+            return apiError('Unauthorized', 'UNAUTHORIZED', 401);
         }
 
         const { id } = await params;
 
         // Validate ID format
         if (!isValidUUID(id)) {
-            return NextResponse.json(
-                createErrorResponse('Invalid project ID format', 400),
-                { status: 400 }
-            );
+            return apiError('Invalid project ID format', 'VALIDATION_ERROR', 400);
         }
 
-        // Parse and validate body
-        let body;
-        try {
-            body = await request.json();
-        } catch {
-            return NextResponse.json(
-                createErrorResponse('Invalid JSON body', 400),
-                { status: 400 }
-            );
+        // Validate Body
+        const validation = await validateRequest(request, UpdateProjectSchema, 'body');
+        if (!validation.success) {
+            return validation.response;
         }
 
-        // Validate project data
-        const validation = validateProjectData(body);
-        if (!validation.valid) {
-            return NextResponse.json(
-                createErrorResponse(validation.errors.join(', '), 400),
-                { status: 400 }
-            );
-        }
-
-        // Update project with sanitized data
-        const updatedProject = updateProject(id, validation.sanitized);
+        // Update project
+        const updatedProject = updateProject(id, validation.data);
 
         if (!updatedProject) {
-            return NextResponse.json(
-                createErrorResponse('Project not found', 404),
-                { status: 404 }
-            );
+            return apiError('Project not found', 'NOT_FOUND', 404);
         }
 
-        return NextResponse.json(updatedProject);
+        return apiResponse(updatedProject);
     } catch (error) {
-        console.error('Error updating project:', error.message);
-        return NextResponse.json(
-            createErrorResponse('Failed to update project', 500),
-            { status: 500 }
-        );
+        console.error('Error updating project:', error);
+        return apiError('Failed to update project', 'INTERNAL_ERROR', 500);
     }
 }
 
-// DELETE /api/projects/[id] - Admin protected
-export async function DELETE(request, { params }) {
-    try {
-        // Validate request origin
-        if (!validateRequestOrigin(request)) {
-            return NextResponse.json(
-                createErrorResponse('Invalid request origin', 403),
-                { status: 403 }
-            );
-        }
-
-        // Check authentication
-        if (!isAuthenticated(request)) {
-            return NextResponse.json(
-                createErrorResponse('Unauthorized', 401),
-                { status: 401 }
-            );
-        }
-
-        const { id } = await params;
-
-        // Validate ID format
-        if (!isValidUUID(id)) {
-            return NextResponse.json(
-                createErrorResponse('Invalid project ID format', 400),
-                { status: 400 }
-            );
-        }
-
-        const deleted = deleteProject(id);
-
-        if (!deleted) {
-            return NextResponse.json(
-                createErrorResponse('Project not found', 404),
-                { status: 404 }
-            );
-        }
-
-        return NextResponse.json({ success: true, message: 'Project deleted' });
-    } catch (error) {
-        console.error('Error deleting project:', error.message);
-        return NextResponse.json(
-            createErrorResponse('Failed to delete project', 500),
-            { status: 500 }
-        );
-    }
-}

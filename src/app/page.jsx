@@ -40,18 +40,23 @@ export default function HomePage() {
         // Fetch Projects
         const p1 = fetch('/api/projects')
             .then(res => res.json())
-            .then(data => {
-                // Filter published and sort by order
-                const published = data.filter(p => p.status === 'published');
-                const sorted = published.sort((a, b) => (a.order || 0) - (b.order || 0));
-                setProjects(sorted);
+            .then(json => {
+                if (json.success) {
+                    const data = json.data;
+                    // Filter published and sort by order
+                    const published = data.filter(p => p.status === 'published');
+                    const sorted = published.sort((a, b) => (a.order || 0) - (b.order || 0));
+                    setProjects(sorted);
+                }
             })
             .catch(console.error);
 
         // Fetch Metrics
         const p2 = fetch('/api/metrics')
             .then(res => res.json())
-            .then(setMetrics)
+            .then(json => {
+                if (json.success) setMetrics(json.data);
+            })
             .catch(console.error);
 
         Promise.all([p1, p2]).finally(() => setLoading(false));

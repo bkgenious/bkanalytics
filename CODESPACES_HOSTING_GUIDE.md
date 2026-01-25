@@ -118,6 +118,7 @@ Codespaces is for dev/demo. To host on a custom domain (e.g., `yourname.com`) la
 | **"Private" URL** | Right-click Port 3000 -> Port Visibility -> Public. |
 | **Admin Login Fails** | Check `.env.local` or run `npm run predev` to reset. |
 | **Images Missing** | Did you rebuild the container? Commit images to Git to save them. |
+| **"Permission denied"** | Run `chmod +x node_modules/.bin/next` or `rm -rf node_modules && npm install`. |
 
 ---
 *Ultra-Premium Portfolio Platform - Codespaces Hosting Edition*

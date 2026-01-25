@@ -7,6 +7,8 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
+import { isProduction } from './env';
+
 // Upload directories
 const UPLOAD_BASE = path.join(process.cwd(), 'public', 'uploads');
 const UPLOAD_DIRS = {
@@ -34,8 +36,12 @@ const ALLOWED_TYPES = {
     },
     documents: {
         'application/msword': { ext: '.doc', magic: [0xD0, 0xCF, 0x11, 0xE0] },
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { ext: '.docx', magic: [0x50, 0x4B, 0x03, 0x04] }, // ZIP signature
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { ext: '.docx', magic: [0x50, 0x4B, 0x03, 0x04] },
+        'application/vnd.ms-excel': { ext: '.xls', magic: [0xD0, 0xCF, 0x11, 0xE0] },
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { ext: '.xlsx', magic: [0x50, 0x4B, 0x03, 0x04] },
         'text/plain': { ext: '.txt', magic: null },
+        'text/csv': { ext: '.csv', magic: null },
+        'application/octet-stream': { ext: '.pbix', magic: null }, // Generic binary for PBIX
     }
 };
 
@@ -54,6 +60,9 @@ const MAX_TOTAL_SIZE = 150 * 1024 * 1024; // 150MB
  * Ensures upload directories exist with proper permissions
  */
 export function ensureUploadDirs() {
+    // Skip checking dirs in production (read-only)
+    if (isProduction()) return;
+
     Object.values(UPLOAD_DIRS).forEach(dir => {
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
@@ -180,6 +189,10 @@ export async function validateFile(file, buffer) {
  * @returns {Promise<Object>} Result with path or error
  */
 export async function saveFile(file) {
+    if (isProduction()) {
+        return { success: false, error: 'Editing is only allowed in Codespaces CMS. Production is read-only.' };
+    }
+
     try {
         ensureUploadDirs();
 
@@ -232,6 +245,8 @@ export async function saveFile(file) {
  * @returns {boolean} True if deleted successfully
  */
 export function deleteFile(publicPath) {
+    if (isProduction()) return true; // Pretend success in prod to avoid UI errors, but do nothing.
+
     if (!publicPath || typeof publicPath !== 'string') return true;
 
     try {

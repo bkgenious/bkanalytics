@@ -16,15 +16,23 @@ const CACHE_TTL = 5000; // 5 seconds
  * Calculates metrics from fresh data
  * @returns {Object} Metrics object
  */
+import fs from 'fs';
+import path from 'path';
+
+/**
+ * Calculates metrics from fresh data
+ * @returns {Object} Metrics object
+ */
 function calculateMetrics() {
     // 1. Fetch data
     const projects = getAllProjects();
     const config = getConfig();
 
-    // 2. Filter for published projects only
+    // 2. Filter data
     const publishedProjects = projects.filter(p => p.status === 'published');
+    const draftProjects = projects.filter(p => p.status === 'draft');
 
-    // 3. Aggregate Tool Counts
+    // 3. Aggregate Tool Counts (Published only for public, but detailed for admin)
     const toolCounts = {
         'Power BI': 0,
         'Tableau': 0,
@@ -37,33 +45,65 @@ function calculateMetrics() {
         }
     });
 
-    // 4. Aggregate Media Counts
+    // 4. Aggregate Media Counts & Storage
     let totalImages = 0;
     let totalVideos = 0;
     let totalPdfs = 0;
     let totalDocuments = 0;
+    let totalStorageBytes = 0;
 
-    publishedProjects.forEach(p => {
-        // Safe access with fallbacks
+    const publicDir = path.join(process.cwd(), 'public');
+
+    function checkFile(relPath) {
+        if (!relPath) return;
+        try {
+            const fullPath = path.join(publicDir, relPath);
+            const stats = fs.statSync(fullPath);
+            totalStorageBytes += stats.size;
+        } catch {
+            // File might be missing
+        }
+    }
+
+    // Scan all projects (including drafts) for admin stats
+    projects.forEach(p => {
+        // Count items
         totalImages += Array.isArray(p.images) ? p.images.length : 0;
         if (p.video) totalVideos++;
         if (p.pdf) totalPdfs++;
         totalDocuments += Array.isArray(p.documents) ? p.documents.length : 0;
+
+        // Calculate storage
+        if (Array.isArray(p.images)) p.images.forEach(checkFile);
+        if (Array.isArray(p.documents)) p.documents.forEach(checkFile);
+        if (p.video) checkFile(p.video);
+        if (p.pdf) checkFile(p.pdf);
+        if (p.thumbnail) checkFile(p.thumbnail);
     });
 
     // 5. Construct Response
     return {
-        totalProjects: publishedProjects.length,
+        // Project Stats
+        totalProjects: projects.length, // All projects
+        publishedCount: publishedProjects.length,
+        draftCount: draftProjects.length,
+
         // Tool stats
         powerBI: toolCounts['Power BI'],
         tableau: toolCounts['Tableau'],
         excel: toolCounts['Excel'],
+
         // Media stats
         totalImages,
         totalVideos,
         totalPdfs,
         totalDocuments,
         totalMedia: totalImages + totalVideos + totalPdfs + totalDocuments,
+
+        // Storage Stats
+        storageUsedBytes: totalStorageBytes,
+        storageUsedMB: Math.round(totalStorageBytes / (1024 * 1024) * 100) / 100,
+
         // Configurable stats
         experienceYears: config.experience,
         customStats: config.customStats || []

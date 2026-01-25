@@ -1,17 +1,47 @@
 {
-  "experience": 1,
-  "customStats": [
+  "profile": {
+    "name": "Admin",
+    "role": "Data Analytics Expert",
+    "email": "contact@example.com",
+    "socials": {
+      "linkedin": "",
+      "github": "",
+      "twitter": ""
+    }
+  },
+  "hero": {
+    "headline": "Verified Headline",
+    "subheadline": "I design enterprise-grade dashboards and analytics solutions that help organizations make confident, data-driven decisions.",
+    "ctaPrimary": "View Work",
+    "ctaSecondary": "Get in Touch"
+  },
+  "about": {
+    "title": "Data solutions for complex challenges",
+    "description": "With over 5 years in data analytics, I help organizations unlock value from their data through powerful visualizations and strategic insights."
+  },
+  "seo": {
+    "title": "DataViz Portfolio | Data Analytics & Visualization Expert",
+    "description": "Professional portfolio showcasing Power BI, Tableau, and Excel dashboards."
+  },
+  "features": {
+    "showSkills": true,
+    "showContact": true
+  },
+  "skills": [
     {
-      "label": "Dashboards Built",
-      "value": "8+"
+      "tool": "Power BI",
+      "level": 95,
+      "description": "Enterprise dashboards, DAX measures, data modeling, and report optimization"
     },
     {
-      "label": "Reports Created",
-      "value": "8+"
+      "tool": "Tableau",
+      "level": 90,
+      "description": "Interactive visualizations, calculated fields, and server deployment"
     },
     {
-      "label": "Enterprise Clients",
-      "value": "8+"
+      "tool": "Excel",
+      "level": 98,
+      "description": "Power Query, advanced formulas, data analysis, and VBA automation"
     }
   ]
 }
